@@ -4,10 +4,10 @@ import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
 import { Checkbox } from '../../../components/ui/Checkbox';
 import Icon from '../../../components/AppIcon';
-import axios from 'axios';
 import { useDispatch } from "react-redux";
 import { setUser } from "../../../slices/authSlice";
 import { toast } from "react-toastify";
+import API from '../../../api';
 
 const LoginForm = () => {
   const navigate = useNavigate();
@@ -70,7 +70,7 @@ const LoginForm = () => {
     setErrors({});
 
     try {
-      const response = await axios.post(
+      const response = await API.post(
         "/api/users/login",
         {
           email: formData.email,

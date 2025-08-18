@@ -10,6 +10,7 @@ import axios from "axios";
 import { toast } from "react-toastify";
 import { useDispatch } from "react-redux";
 import { setUser } from "../../slices/authSlice";
+import API from '../../api';
 
 const RegisterScreen = () => {
   const navigate = useNavigate();
@@ -24,7 +25,7 @@ const handleRegistration = async (formData) => {
 
     try {
       // Call backend API
-      const response = await axios.post("/api/users/register", {
+      const response = await API.post("/api/users/register", {
         name: formData.name,
         email: formData.email,
         password: formData.password,

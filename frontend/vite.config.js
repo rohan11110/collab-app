@@ -4,8 +4,9 @@ import path from "path";
 
 export default defineConfig(({ mode }) => {
   // Load env file based on `mode` (development or production)
-  const env = loadEnv(mode, process.cwd(), "");
-
+  // const env = loadEnv(mode, process.cwd(), "");
+  // console.log(env.BACKEND_URL);
+  
   return {
     plugins: [react()],
     resolve: {
@@ -14,14 +15,14 @@ export default defineConfig(({ mode }) => {
         pages: path.resolve(__dirname, "./src/pages"),
       },
     },
-    server: {
-      proxy: {
-        "/api": {
-          target: env.BACKEND_URL, // ✅ use VITE_API_URL from .env file
-          changeOrigin: true,
-          secure: false,
-        },
-      },
-    },
+    // server: {
+    //   proxy: {
+    //     "/api": {
+    //       target: env.BACKEND_URL, 
+    //       changeOrigin: true,
+    //       secure: false,
+    //     },
+    //   },
+    // },
   };
 });
