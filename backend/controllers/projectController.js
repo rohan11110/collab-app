@@ -25,7 +25,7 @@ const getProjects = asyncHandler(async (req, res) => {
   }).populate("owner", "name email");
 
   if (!projects || projects.length === 0) {
-    return res.status(200).json({ message: "No projects found" });
+    return res.status(200).json({ projects: [] });
   }
 
   res.json(projects);
@@ -34,6 +34,10 @@ const getProjects = asyncHandler(async (req, res) => {
 // @desc Get single project
 const getProjectById = asyncHandler(async (req, res) => {
   const project = await Project.findById(req.params.id).populate("owner", "name email");
+  if (!project.members.includes(req.user._id)) {
+  return res.status(403).json({ message: "Access denied" });
+}
+
   if (!project) {
     return res.status(404).json({ message: "Project not found" });
   }
