@@ -2,47 +2,21 @@ const { Server } = require("socket.io");
 const jwt = require("jsonwebtoken");
 const Project = require("../models/projectModel");
 const User = require("../models/userModel");
+const DocumentVersion = require("../models/versionModel");
 
 const PROJECT_ROOM = (projectId) => `project:${projectId}`;
-const SAVE_DELAY = 500;
 const pendingSaves = new Map();
+const SAVE_DELAY = 600;
+const VERSION_COOLDOWN = 15000;
+const lastVersionAt = new Map();
 
-const canAccessProject = (project, userId) => {
-  if (!project) return false;
-  if (project.owner.toString() === userId.toString()) return true;
-  return project.members.some((member) => member.toString() === userId.toString());
-};
-
-const persistProjectContent = async (projectId, content, userId) => {
-  const project = await Project.findById(projectId).select("owner members");
-
-  if (!project || !canAccessProject(project, userId)) {
-    throw new Error("Project access denied");
-  }
-
-  await Project.findByIdAndUpdate(
-    projectId,
-    { $set: { content } },
-    { runValidators: true }
-  );
-};
-
-const scheduleContentSave = (projectId, content, userId) => {
-  const existing = pendingSaves.get(projectId);
-  if (existing) clearTimeout(existing.timer);
-
-  const timer = setTimeout(async () => {
-    pendingSaves.delete(projectId);
-    try {
-      await persistProjectContent(projectId, content, userId);
-      console.log(`Document ${projectId} saved to MongoDB`);
-    } catch (error) {
-      console.error(`Failed to save document ${projectId}:`, error.message);
-    }
-  }, SAVE_DELAY);
-
-  pendingSaves.set(projectId, { timer, content, userId });
-};
+const safeUser = (user) => ({
+  id: user._id?.toString?.() || user.id?.toString?.(),
+  name: user.name || "User",
+  email: user.email || "",
+  color: user.color || "#2563EB",
+  role: user.role || "editor",
+});
 
 const authenticateSocket = async (socket, next) => {
   try {
@@ -53,24 +27,77 @@ const authenticateSocket = async (socket, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id).select("-password");
+    const user = await User.findById(decoded.id).select("name email");
 
-    if (!user) return next(new Error("User not found"));
+    if (!user) {
+      return next(new Error("User not found"));
+    }
 
     socket.user = user;
-    return next();
+    next();
   } catch (error) {
-    console.error("Socket authentication failed:", error.message);
-    return next(new Error("Invalid or expired token"));
+    console.error("Socket auth error:", error.message);
+    next(new Error("Not authorized"));
   }
 };
 
-const initializeSocket = (server, allowedOrigins) => {
+const saveProjectContent = async ({ projectId, content, userId, reason = "Autosave" }) => {
+  const project = await Project.findById(projectId).select("content title members owner");
+  if (!project) return false;
+
+  const allowed = project.members.some((member) => member.toString() === userId.toString());
+  if (!allowed) return false;
+
+  project.content = content;
+  await project.save();
+
+  const previousVersionAt = lastVersionAt.get(projectId) || 0;
+  const now = Date.now();
+
+  if (now - previousVersionAt >= VERSION_COOLDOWN || reason === "Restored version") {
+    await DocumentVersion.create({
+      project: project._id,
+      content,
+      title: project.title,
+      createdBy: userId,
+      reason,
+    });
+    lastVersionAt.set(projectId, now);
+  }
+
+  return true;
+};
+
+const scheduleContentSave = (payload, socket) => {
+  const existing = pendingSaves.get(payload.projectId);
+  if (existing) clearTimeout(existing.timer);
+
+  const timer = setTimeout(async () => {
+    pendingSaves.delete(payload.projectId);
+    const saved = await saveProjectContent(payload);
+    if (saved) {
+      socket.emit("doc:saved", {
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  }, SAVE_DELAY);
+
+  pendingSaves.set(payload.projectId, { timer, payload });
+};
+
+const initializeSocket = (server) => {
+  const allowedOrigins = (
+    process.env.ALLOWED_ORIGINS || process.env.CLIENT_URL || "http://localhost:5173"
+  )
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
   const io = new Server(server, {
     cors: {
       origin: allowedOrigins,
       methods: ["GET", "POST"],
-      credentials: false,
+      credentials: true,
     },
     transports: ["websocket", "polling"],
   });
@@ -78,6 +105,7 @@ const initializeSocket = (server, allowedOrigins) => {
   io.use(authenticateSocket);
 
   io.on("connection", (socket) => {
+    socket.data.projects = new Set();
     console.log(`Socket connected: ${socket.id} (${socket.user.email})`);
 
     socket.on("join:project", async ({ projectId } = {}) => {
@@ -89,16 +117,22 @@ const initializeSocket = (server, allowedOrigins) => {
         );
 
         if (!project) {
-          return socket.emit("project:error", { message: "Project not found" });
+          socket.emit("project:error", { message: "Project not found" });
+          return;
         }
 
-        if (!canAccessProject(project, socket.user._id)) {
-          return socket.emit("project:error", { message: "Access denied" });
+        const isMember = project.members.some(
+          (member) => member.toString() === socket.user._id.toString()
+        );
+
+        if (!isMember) {
+          socket.emit("project:error", { message: "Access denied" });
+          return;
         }
 
         const room = PROJECT_ROOM(projectId);
         socket.join(room);
-        socket.projectId = projectId;
+        socket.data.projects.add(projectId.toString());
 
         socket.emit("doc:init", {
           content: project.content || "",
@@ -106,22 +140,16 @@ const initializeSocket = (server, allowedOrigins) => {
             _id: project._id,
             title: project.title,
             owner: project.owner,
-            members: project.members,
             lastModified: project.updatedAt,
           },
         });
 
-        const roomSockets = await io.in(room).fetchSockets();
-        io.to(room).emit("presence:update", {
-          collaborators: roomSockets.map((client) => ({
-            id: client.user._id.toString(),
-            name: client.user.name,
-            email: client.user.email,
-            status: "online",
-            role: client.user._id.toString() === project.owner.toString() ? "Owner" : "Editor",
-            isTyping: false,
-            color: "#2563EB",
-          })),
+        const members = await User.find({ _id: { $in: project.members } }).select("name email");
+        const collaborators = members.map((user) => ({ ...safeUser(user), status: "online" }));
+        io.to(room).emit("presence:update", { collaborators });
+
+        socket.to(room).emit("presence:user", {
+          user: { ...safeUser(socket.user), status: "online", isTyping: false },
         });
       } catch (error) {
         console.error("join:project error:", error.message);
@@ -129,69 +157,115 @@ const initializeSocket = (server, allowedOrigins) => {
       }
     });
 
-    socket.on("doc:update", ({ projectId, content, clientId } = {}) => {
+    socket.on("doc:update", async ({ projectId, content, clientId } = {}) => {
       if (!projectId || typeof content !== "string") return;
-      if (socket.projectId !== projectId) return;
-
-      scheduleContentSave(projectId, content, socket.user._id);
+      if (!socket.data.projects.has(projectId.toString())) return;
 
       socket.to(PROJECT_ROOM(projectId)).emit("doc:remoteUpdate", {
         content,
         clientId,
         userId: socket.user._id.toString(),
+        updatedAt: new Date().toISOString(),
       });
+
+      scheduleContentSave({
+        projectId,
+        content,
+        userId: socket.user._id,
+      }, socket);
     });
 
-    socket.on("presence:update", ({ projectId, isTyping, cursorPosition } = {}) => {
-      if (!projectId || socket.projectId !== projectId) return;
+    socket.on("presence:update", ({ projectId, isTyping = false, cursorPosition = null } = {}) => {
+      if (!projectId || !socket.data.projects.has(projectId.toString())) return;
+
       socket.to(PROJECT_ROOM(projectId)).emit("presence:user", {
         user: {
-          id: socket.user._id.toString(),
-          name: socket.user.name,
-          email: socket.user.email,
+          ...safeUser(socket.user),
           status: "online",
           isTyping: Boolean(isTyping),
-          cursorPosition: cursorPosition || null,
-          color: "#2563EB",
+          cursorPosition,
         },
       });
     });
 
-    socket.on("chat:message", ({ projectId, message } = {}) => {
-      if (!projectId || !message || socket.projectId !== projectId) return;
-      socket.to(PROJECT_ROOM(projectId)).emit("chat:message", message);
+    socket.on("chat:message", async ({ projectId, message } = {}) => {
+      if (!projectId || !message?.content || !socket.data.projects.has(projectId.toString())) return;
+
+      const project = await Project.findById(projectId).select("members");
+      if (!project || !project.members.some((member) => member.toString() === socket.user._id.toString())) return;
+
+      const clean = {
+        clientId: message.clientId || `${Date.now()}-${Math.random()}`,
+        user: socket.user._id,
+        content: String(message.content).trim(),
+      };
+
+      await Project.findByIdAndUpdate(projectId, {
+        $push: { messages: clean },
+      });
+
+      const payload = {
+        id: clean.clientId,
+        user: safeUser(socket.user),
+        content: clean.content,
+        timestamp: new Date().toISOString(),
+      };
+
+      socket.to(PROJECT_ROOM(projectId)).emit("chat:message", payload);
+      socket.emit("chat:ack", payload);
     });
 
-    socket.on("comment:add", ({ projectId, comment } = {}) => {
-      if (!projectId || !comment || socket.projectId !== projectId) return;
-      socket.to(PROJECT_ROOM(projectId)).emit("comment:added", comment);
+    socket.on("comment:add", async ({ projectId, comment } = {}) => {
+      if (!projectId || !comment?.text || !socket.data.projects.has(projectId.toString())) return;
+
+      const clean = {
+        clientId: comment.clientId || `${Date.now()}-${Math.random()}`,
+        user: socket.user._id,
+        text: String(comment.text),
+        selection: String(comment.selection || ""),
+        resolved: false,
+        position: comment.position || { top: 0, left: 0 },
+      };
+
+      await Project.findByIdAndUpdate(projectId, { $push: { comments: clean } });
+
+      const payload = {
+        id: clean.clientId,
+        user: safeUser(socket.user),
+        text: clean.text,
+        selection: clean.selection,
+        resolved: false,
+        position: clean.position,
+        timestamp: new Date().toISOString(),
+      };
+
+      socket.to(PROJECT_ROOM(projectId)).emit("comment:added", payload);
+      socket.emit("comment:ack", payload);
     });
 
-    socket.on("comment:resolve", ({ projectId, commentId } = {}) => {
-      if (!projectId || !commentId || socket.projectId !== projectId) return;
-      socket.to(PROJECT_ROOM(projectId)).emit("comment:resolved", { commentId });
+    socket.on("comment:resolve", async ({ projectId, commentId } = {}) => {
+      if (!projectId || !commentId || !socket.data.projects.has(projectId.toString())) return;
+
+      await Project.updateOne(
+        { _id: projectId, "comments.clientId": commentId },
+        { $set: { "comments.$.resolved": true } }
+      );
+
+      io.to(PROJECT_ROOM(projectId)).emit("comment:resolved", { commentId });
     });
 
     socket.on("leave:project", ({ projectId } = {}) => {
       if (!projectId) return;
       socket.leave(PROJECT_ROOM(projectId));
-      socket.projectId = null;
+      socket.data.projects.delete(projectId.toString());
     });
 
-    socket.on("disconnect", async () => {
-      if (!socket.projectId) return;
-      const room = PROJECT_ROOM(socket.projectId);
-      const roomSockets = await io.in(room).fetchSockets();
-      io.to(room).emit("presence:update", {
-        collaborators: roomSockets.map((client) => ({
-          id: client.user._id.toString(),
-          name: client.user.name,
-          email: client.user.email,
-          status: "online",
-          isTyping: false,
-          color: "#2563EB",
-        })),
-      });
+    socket.on("disconnect", () => {
+      for (const projectId of socket.data.projects || []) {
+        socket.to(PROJECT_ROOM(projectId)).emit("presence:leave", {
+          userId: socket.user._id.toString(),
+        });
+      }
       console.log(`Socket disconnected: ${socket.id}`);
     });
   });

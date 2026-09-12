@@ -10,3 +10,79 @@ body {
   font-family: inherit;
   margin: unset;
 }
+
+.menu-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.65rem;
+  border-radius: 0.8rem;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--color-foreground);
+  transition: background .18s ease, color .18s ease, transform .18s ease;
+}
+.menu-row:hover { background: var(--color-muted); }
+
+.editor-surface {
+  background:
+    radial-gradient(circle at 0% 0%, rgba(37,99,235,.045), transparent 28%),
+    radial-gradient(circle at 100% 100%, rgba(124,58,237,.035), transparent 26%),
+    var(--color-background);
+}
+
+.dark .editor-surface {
+  background:
+    radial-gradient(circle at 0% 0%, rgba(59,130,246,.08), transparent 28%),
+    radial-gradient(circle at 100% 100%, rgba(139,92,246,.07), transparent 26%),
+    var(--color-background);
+}
+
+.doc-paper {
+  background: var(--color-card);
+  box-shadow: 0 30px 80px -34px rgba(15,23,42,.35), 0 12px 30px -20px rgba(15,23,42,.18);
+}
+.dark .doc-paper {
+  box-shadow: 0 35px 80px -35px rgba(0,0,0,.72), 0 10px 30px -18px rgba(0,0,0,.42);
+}
+
+.glass-panel {
+  background: color-mix(in srgb, var(--color-card) 76%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.soft-grid {
+  background-image: linear-gradient(color-mix(in srgb, var(--color-border) 25%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--color-border) 25%, transparent) 1px, transparent 1px);
+  background-size: 24px 24px;
+  mask-image: linear-gradient(to bottom, black, transparent 88%);
+}
+
+.scrollbar-thin::-webkit-scrollbar { width: 7px; height: 7px; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--color-muted-foreground) 22%, transparent); border-radius: 999px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; }
+}
+
+
+.doc-editor-content:empty::before {
+  content: attr(data-placeholder);
+  color: var(--color-muted-foreground);
+  opacity: .55;
+  pointer-events: none;
+}
+.doc-editor-content:focus { min-height: 60vh; }
+.doc-editor-content p { margin: 0 0 1em; }
+.doc-editor-content h1 { font-size: 2.2em; line-height: 1.15; font-weight: 800; margin: .25em 0 .55em; letter-spacing: -.035em; }
+.doc-editor-content h2 { font-size: 1.65em; line-height: 1.2; font-weight: 750; margin: .3em 0 .6em; letter-spacing: -.025em; }
+.doc-editor-content h3 { font-size: 1.3em; line-height: 1.25; font-weight: 700; margin: .35em 0 .65em; }
+.doc-editor-content a { color: var(--color-primary); text-decoration: underline; text-underline-offset: 3px; }
+.doc-editor-content ul, .doc-editor-content ol { padding-left: 1.5rem; margin: 1rem 0; }
+.doc-editor-content blockquote { margin: 1.25rem 0; border-left: 3px solid var(--color-primary); padding: .2rem 0 .2rem 1rem; color: var(--color-muted-foreground); }
+.doc-editor-content img { max-width: 100%; border-radius: 12px; margin: 1rem 0; }
+.doc-editor-content table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+.doc-editor-content td, .doc-editor-content th { border: 1px solid var(--color-border); padding: .6rem; min-width: 70px; }
+.doc-editor-content th { background: var(--color-muted); font-weight: 700; }

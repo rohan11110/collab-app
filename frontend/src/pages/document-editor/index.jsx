@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { io } from "socket.io-client";
 import { useDispatch, useSelector } from "react-redux";
@@ -12,6 +13,7 @@ import Button from "../../components/ui/Button";
 import Icon from "../../components/AppIcon";
 import API from "../../api";
 import { clearUser } from "../../slices/authSlice";
+import { toast } from "sonner";
 
 const API_URL =
   import.meta.env.VITE_BACKEND_URL || "http://localhost:5001";
@@ -391,12 +393,95 @@ console.log(projectId);
   );
 
   const handleFormat = (type, value) => {
+    const commands = {
+      bold: "bold",
+      italic: "italic",
+      underline: "underline",
+      strikethrough: "strikeThrough",
+      undo: "undo",
+      redo: "redo",
+      color: "foreColor",
+      backgroundColor: "hiliteColor",
+      align: {
+        left: "justifyLeft",
+        center: "justifyCenter",
+        right: "justifyRight",
+        justify: "justifyFull",
+      },
+      list: { bullet: "insertUnorderedList", number: "insertOrderedList" },
+    };
+
+    try {
+      document.execCommand("styleWithCSS", false, true);
+      if (type === "fontFamily") document.execCommand("fontName", false, value);
+      else if (type === "color") document.execCommand(commands.color, false, value);
+      else if (type === "backgroundColor") document.execCommand(commands.backgroundColor, false, value);
+      else if (type === "align") document.execCommand(commands.align[value], false, null);
+      else if (type === "list") document.execCommand(commands.list[value], false, null);
+      else if (commands[type]) document.execCommand(commands[type], false, null);
+
+      const activeEditor = document.activeElement?.closest?.("[contenteditable=\"true\"]");
+      if (activeEditor && ["bold", "italic", "underline", "strikethrough", "undo", "redo", "color", "backgroundColor", "align", "list", "fontFamily"].includes(type)) {
+        queueDocumentUpdate(activeEditor.innerHTML);
+      }
+    } catch (error) {
+      console.warn("Formatting command was not available:", type, error);
+    }
+
     setCurrentFormat((prev) => {
       if (["bold", "italic", "underline", "strikethrough"].includes(type)) {
         return { ...prev, [type]: !prev[type] };
       }
+      if (type === "align") return { ...prev, align: value };
+      if (type === "fontFamily") return { ...prev, fontFamily: value };
+      if (type === "fontSize") return { ...prev, fontSize: value };
+      if (type === "list") return { ...prev, listType: value };
       return { ...prev, [type]: value };
     });
+  };
+
+  const handleInsert = (type) => {
+    const editor = document.activeElement?.closest?.("[contenteditable=\"true\"]");
+    if (!editor) return;
+
+    if (type === "link") {
+      const url = window.prompt("Enter URL");
+      if (!url) return;
+      document.execCommand("createLink", false, url);
+      return;
+    }
+
+    if (type === "image") {
+      const url = window.prompt("Enter image URL");
+      if (!url) return;
+      document.execCommand("insertImage", false, url);
+      return;
+    }
+
+    if (type === "table") {
+      const rows = Math.min(8, Math.max(1, Number(window.prompt("Rows", "3")) || 3));
+      const cols = Math.min(8, Math.max(1, Number(window.prompt("Columns", "3")) || 3));
+      const table = document.createElement("table");
+      table.style.borderCollapse = "collapse";
+      table.style.width = "100%";
+      table.style.margin = "16px 0";
+      for (let row = 0; row < rows; row += 1) {
+        const tr = table.insertRow();
+        for (let col = 0; col < cols; col += 1) {
+          const cell = tr.insertCell();
+          cell.innerHTML = "&nbsp;";
+          cell.style.border = "1px solid var(--color-border)";
+          cell.style.padding = "10px";
+          cell.style.minWidth = "80px";
+        }
+      }
+      const selection = window.getSelection();
+      if (!selection?.rangeCount) return;
+      selection.getRangeAt(0).deleteContents();
+      selection.getRangeAt(0).insertNode(table);
+      selection.removeAllRanges();
+      queueDocumentUpdate(editor.innerHTML);
+    }
   };
 
   const handleSendMessage = (text) => {
@@ -456,6 +541,9 @@ console.log(projectId);
   const handleShare = async (type) => {
     if (type === "link") {
       await navigator.clipboard?.writeText(window.location.href);
+      toast.success("Document link copied");
+    } else if (type === "email") {
+      navigate("/document-sharing-settings", { state: { documentId: projectId } });
     }
   };
 
@@ -508,12 +596,8 @@ console.log(projectId);
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <GlobalHeader
-        user={currentUser}
-        notifications={[]}
-        onLogout={handleLogout}
-      />
+    <div className="min-h-screen bg-background text-foreground">
+      <GlobalHeader user={currentUser} notifications={[]} onLogout={handleLogout} />
 
       <EditorContextBar
         document={documentView}
@@ -524,47 +608,42 @@ console.log(projectId);
         onExport={handleExport}
         onSettings={() => navigate("/user-profile-settings")}
         showCollaborationPanel={showCollaborationPanel}
-        onToggleCollaboration={() =>
-          setShowCollaborationPanel((value) => !value)
-        }
+        onToggleCollaboration={() => setShowCollaborationPanel((value) => !value)}
       />
 
-      <div className="flex items-center justify-end gap-2 border-b border-border px-4 py-1 text-xs text-muted-foreground">
-        <span
-          className={`h-2 w-2 rounded-full ${
-            connectionState === "connected" ? "bg-success" : "bg-warning"
-          }`}
-        />
-        <span>{connectionLabel}</span>
-        <span>•</span>
-        <span>
-          {saveState === "saving"
-            ? "Saving…"
-            : saveState === "offline"
-              ? "Waiting for connection"
-              : "Saved"}
-        </span>
+      <div className="sticky top-[148px] z-40 border-b border-border/60 bg-background/75 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-[1600px] items-center justify-between px-4 py-1.5 sm:px-6 lg:px-8">
+          <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
+            <motion.span animate={{ scale: connectionState === "connected" ? [1, 1.18, 1] : 1 }} transition={{ duration: 1.8, repeat: connectionState === "connected" ? Infinity : 0 }} className={`h-2 w-2 rounded-full ${connectionState === "connected" ? "bg-emerald-500" : connectionState === "connecting" ? "bg-amber-500" : "bg-rose-500"}`} />
+            <span>{connectionLabel}</span>
+            <span className="opacity-40">/</span>
+            <span>{saveState === "saving" ? "Saving changes…" : saveState === "offline" ? "Changes queued offline" : "All changes saved"}</span>
+          </div>
+          <span className="hidden text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground sm:block">{documentView.wordCount} words</span>
+        </div>
       </div>
 
       <DocumentToolbar
         onFormat={handleFormat}
         currentFormat={currentFormat}
-        onInsert={() => {}}
+        onInsert={handleInsert}
         onComment={() => setIsCommentMode((value) => !value)}
         isCommentMode={isCommentMode}
       />
 
-      <div className="flex" style={{ height: "calc(100vh - 220px)" }}>
-        <DocumentCanvas
-          content={content}
-          onChange={handleContentChange}
-          collaborators={collaborators}
-          comments={comments}
-          onAddComment={handleAddComment}
-          isCommentMode={isCommentMode}
-          currentFormat={currentFormat}
-          loading={loading}
-        />
+      <main className="editor-surface relative flex min-h-[calc(100vh-188px)]">
+        <div className={`min-w-0 flex-1 transition-[padding] duration-300 ${showCollaborationPanel ? "lg:pr-[380px]" : ""}`}>
+          <DocumentCanvas
+            content={content}
+            onChange={handleContentChange}
+            collaborators={collaborators}
+            comments={comments}
+            onAddComment={handleAddComment}
+            isCommentMode={isCommentMode}
+            currentFormat={currentFormat}
+            loading={loading}
+          />
+        </div>
 
         <CollaborationPanel
           isOpen={showCollaborationPanel}
@@ -583,29 +662,25 @@ console.log(projectId);
           onRestoreVersion={() => setShowVersionHistory(false)}
           currentVersion="current"
         />
-      </div>
+      </main>
 
-      <div className="fixed bottom-6 left-6 flex items-center gap-2 rounded-lg bg-success px-3 py-2 text-success-foreground shadow-elevated">
-        <Icon name={saveState === "saving" ? "CloudUpload" : "Check"} size={16} />
-        <span className="text-sm font-medium">
-          {saveState === "saving"
-            ? "Saving…"
-            : saveState === "offline"
-              ? "Offline"
-              : "Saved"}
-        </span>
-      </div>
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        className={`fixed bottom-5 left-1/2 z-40 hidden -translate-x-1/2 items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-semibold shadow-lg backdrop-blur-xl sm:flex ${saveState === "offline" ? "border-amber-500/20 bg-amber-500/10 text-amber-600" : "border-border/80 bg-card/90 text-muted-foreground"}`}
+      >
+        <span className={`h-1.5 w-1.5 rounded-full ${saveState === "saving" ? "bg-amber-500" : saveState === "offline" ? "bg-amber-500" : "bg-emerald-500"}`} />
+        {saveState === "saving" ? "Saving" : saveState === "offline" ? "Offline" : "Saved to cloud"}
+      </motion.div>
 
-      <div className="fixed bottom-6 right-6 lg:hidden">
-        <Button
-          variant="default"
-          size="icon"
-          onClick={() => setShowCollaborationPanel(true)}
-          className="h-14 w-14 rounded-full"
-        >
-          <Icon name="Users" size={24} />
-        </Button>
-      </div>
+      <motion.button
+        whileHover={{ scale: 1.04 }}
+        whileTap={{ scale: .96 }}
+        onClick={() => setShowCollaborationPanel(true)}
+        className="fixed bottom-5 right-5 z-40 flex h-12 w-12 items-center justify-center rounded-2xl bg-foreground text-background shadow-2xl lg:hidden"
+      >
+        <Icon name="Users" size={20} />
+      </motion.button>
     </div>
   );
 };

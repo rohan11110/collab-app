@@ -1,14 +1,25 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { Provider } from "react-redux";
+import { PersistGate } from "redux-persist/integration/react";
+import { Toaster } from "sonner";
 import App from "./App";
+import store, { persistor } from "./store";
+import { ThemeProvider } from "./components/ThemeProvider";
 import "./styles/tailwind.css";
 import "./styles/index.css";
-import { Provider } from "react-redux";
-import store from "./store";
 
-const container = document.getElementById("root");
-const root = createRoot(container);
+const root = createRoot(document.getElementById("root"));
 
-root.render(<Provider store={store}>
-    <App />
-</Provider>);
+root.render(
+  <React.StrictMode>
+    <Provider store={store}>
+      <PersistGate loading={null} persistor={persistor}>
+        <ThemeProvider>
+          <App />
+          <Toaster position="bottom-right" richColors closeButton theme="system" />
+        </ThemeProvider>
+      </PersistGate>
+    </Provider>
+  </React.StrictMode>
+);

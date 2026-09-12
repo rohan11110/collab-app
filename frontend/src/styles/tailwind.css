@@ -1,153 +1,88 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    /* Background Colors */
-    --color-background: #FEFEFE; /* warm white */
-    --color-surface: #F8FAFC; /* subtle gray */
-    --color-card: #FFFFFF; /* white */
-    --color-card-foreground: #1E293B; /* rich charcoal */
-    --color-popover: #FFFFFF; /* white */
-    --color-popover-foreground: #1E293B; /* rich charcoal */
-    
-    /* Text Colors */
-    --color-foreground: #1E293B; /* rich charcoal */
-    --color-muted: #F1F5F9; /* light gray */
-    --color-muted-foreground: #64748B; /* balanced gray */
-    
-    /* Primary Colors */
-    --color-primary: #2563EB; /* trust-building blue */
-    --color-primary-foreground: #FFFFFF; /* white */
-    
-    /* Secondary Colors */
-    --color-secondary: #64748B; /* sophisticated slate */
-    --color-secondary-foreground: #FFFFFF; /* white */
-    
-    /* Accent Colors */
-    --color-accent: #10B981; /* success-oriented emerald */
-    --color-accent-foreground: #FFFFFF; /* white */
-    
-    /* State Colors */
-    --color-success: #059669; /* deeper emerald */
-    --color-success-foreground: #FFFFFF; /* white */
-    --color-warning: #D97706; /* amber */
-    --color-warning-foreground: #FFFFFF; /* white */
-    --color-error: #DC2626; /* clear red */
-    --color-error-foreground: #FFFFFF; /* white */
-    --color-destructive: #DC2626; /* clear red */
-    --color-destructive-foreground: #FFFFFF; /* white */
-    
-    /* Border and Input Colors */
-    --color-border: #E2E8F0; /* surface gray */
-    --color-input: #FFFFFF; /* white */
-    --color-ring: #2563EB; /* trust-building blue */
-    
-    /* Radius */
-    --radius: 0.5rem;
+    --color-background: #f7f8fc;
+    --color-surface: #f1f3f8;
+    --color-card: #ffffff;
+    --color-card-foreground: #111827;
+    --color-popover: #ffffff;
+    --color-popover-foreground: #111827;
+    --color-foreground: #111827;
+    --color-muted: #eef1f6;
+    --color-muted-foreground: #667085;
+    --color-primary: #4f46e5;
+    --color-primary-foreground: #ffffff;
+    --color-secondary: #64748b;
+    --color-secondary-foreground: #ffffff;
+    --color-accent: #14b8a6;
+    --color-accent-foreground: #ffffff;
+    --color-success: #10b981;
+    --color-success-foreground: #ffffff;
+    --color-warning: #f59e0b;
+    --color-warning-foreground: #111827;
+    --color-error: #ef4444;
+    --color-error-foreground: #ffffff;
+    --color-destructive: #ef4444;
+    --color-destructive-foreground: #ffffff;
+    --color-border: #e4e7ec;
+    --color-input: #ffffff;
+    --color-ring: #6366f1;
+    --radius: .75rem;
   }
 
-  * {
-    @apply border-border;
+  .dark {
+    --color-background: #0b0d12;
+    --color-surface: #11141b;
+    --color-card: #151922;
+    --color-card-foreground: #f4f7fb;
+    --color-popover: #151922;
+    --color-popover-foreground: #f4f7fb;
+    --color-foreground: #f4f7fb;
+    --color-muted: #1d2330;
+    --color-muted-foreground: #98a2b3;
+    --color-primary: #818cf8;
+    --color-primary-foreground: #0b0d12;
+    --color-secondary: #94a3b8;
+    --color-secondary-foreground: #0b0d12;
+    --color-accent: #2dd4bf;
+    --color-accent-foreground: #07201b;
+    --color-success: #34d399;
+    --color-success-foreground: #071a13;
+    --color-warning: #fbbf24;
+    --color-warning-foreground: #1a1201;
+    --color-error: #fb7185;
+    --color-error-foreground: #22070c;
+    --color-destructive: #fb7185;
+    --color-destructive-foreground: #22070c;
+    --color-border: #252b38;
+    --color-input: #151922;
+    --color-ring: #818cf8;
   }
-  
+
+  * { @apply border-border; }
+  html { color-scheme: light; background: var(--color-background); }
+  html.dark { color-scheme: dark; }
   body {
     @apply bg-background text-foreground;
-    font-feature-settings: "rlig" 1, "calt" 1;
-  }
-  
-  /* Typography */
-  h1, h2, h3, h4, h5, h6 {
+    margin: 0;
+    min-width: 320px;
     font-family: 'Inter', sans-serif;
-    font-weight: 600;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
-  
-  body, p, span, div {
-    font-family: 'Inter', sans-serif;
-    font-weight: 400;
-  }
-  
-  .font-mono {
-    font-family: 'JetBrains Mono', monospace;
-  }
-  
-  /* Custom animations for collaborative features */
-  @keyframes presence-glow {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); }
-    50% { box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1); }
-  }
-  
-  @keyframes typing-bounce {
-    0%, 60%, 100% { transform: translateY(0); }
-    30% { transform: translateY(-4px); }
-  }
-  
-  @keyframes slide-in-right {
-    from { transform: translateX(100%); opacity: 0; }
-    to { transform: translateX(0); opacity: 1; }
-  }
-  
-  @keyframes fade-in-backdrop {
-    from { backdrop-filter: blur(0px); opacity: 0; }
-    to { backdrop-filter: blur(8px); opacity: 1; }
-  }
-  
-  .animate-presence-glow {
-    animation: presence-glow 2s ease-in-out infinite;
-  }
-  
-  .animate-typing-bounce {
-    animation: typing-bounce 1.4s ease-in-out infinite;
-  }
-  
-  .animate-slide-in-right {
-    animation: slide-in-right 0.3s ease-out;
-  }
-  
-  .animate-fade-in-backdrop {
-    animation: fade-in-backdrop 0.2s ease-out;
-  }
-  
-  /* Micro-interaction feedback */
-  .btn-press {
-    transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
-  }
-  
-  .btn-press:active {
-    transform: scale(0.98);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-  }
-  
-  /* Smooth transitions for collaborative elements */
-  .collaborative-transition {
-    transition: all 0.2s ease-out;
-  }
-  
-  .collaborative-transition-slow {
-    transition: all 0.3s ease-out;
-  }
-  
-  /* Backdrop blur for contextual elements */
-  .backdrop-blur-soft {
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-  }
-  
-  /* Reduced motion support */
-  @media (prefers-reduced-motion: reduce) {
-    .animate-presence-glow,
-    .animate-typing-bounce,
-    .animate-slide-in-right,
-    .animate-fade-in-backdrop {
-      animation: none;
-    }
-    
-    .collaborative-transition,
-    .collaborative-transition-slow {
-      transition: none;
-    }
-  }
+  h1,h2,h3,h4,h5,h6 { font-family: 'Manrope','Inter',sans-serif; }
+  button,input,textarea,select { font: inherit; }
+  ::selection { background: color-mix(in srgb, var(--color-primary) 22%, transparent); }
+}
+
+@layer utilities {
+  .shadow-soft { box-shadow: 0 14px 45px -28px rgba(15,23,42,.45); }
+  .shadow-card { box-shadow: 0 18px 60px -42px rgba(15,23,42,.5); }
+  .text-balance { text-wrap: balance; }
 }
