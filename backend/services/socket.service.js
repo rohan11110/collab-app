@@ -1,208 +1,198 @@
 const { Server } = require("socket.io");
+const jwt = require("jsonwebtoken");
 const Project = require("../models/projectModel");
+const User = require("../models/userModel");
 
 const PROJECT_ROOM = (projectId) => `project:${projectId}`;
-
-// Keep pending saves per project.
-// This prevents MongoDB from being updated for every socket event.
+const SAVE_DELAY = 500;
 const pendingSaves = new Map();
 
-const SAVE_DELAY = 500;
-
-const saveProjectContent = async (projectId, content) => {
-  try {
-    await Project.findByIdAndUpdate(
-      projectId,
-      {
-        $set: {
-          content,
-          updatedAt: new Date(),
-        },
-      },
-      {
-        new: true,
-        runValidators: true,
-      }
-    );
-
-    console.log(`Project ${projectId} content saved`);
-  } catch (error) {
-    console.error(
-      `Failed to save project ${projectId}:`,
-      error.message
-    );
-  }
+const canAccessProject = (project, userId) => {
+  if (!project) return false;
+  if (project.owner.toString() === userId.toString()) return true;
+  return project.members.some((member) => member.toString() === userId.toString());
 };
 
-const scheduleContentSave = (projectId, content) => {
-  const existingTimer = pendingSaves.get(projectId);
+const persistProjectContent = async (projectId, content, userId) => {
+  const project = await Project.findById(projectId).select("owner members");
 
-  if (existingTimer) {
-    clearTimeout(existingTimer);
+  if (!project || !canAccessProject(project, userId)) {
+    throw new Error("Project access denied");
   }
+
+  await Project.findByIdAndUpdate(
+    projectId,
+    { $set: { content } },
+    { runValidators: true }
+  );
+};
+
+const scheduleContentSave = (projectId, content, userId) => {
+  const existing = pendingSaves.get(projectId);
+  if (existing) clearTimeout(existing.timer);
 
   const timer = setTimeout(async () => {
     pendingSaves.delete(projectId);
-
-    await saveProjectContent(projectId, content);
+    try {
+      await persistProjectContent(projectId, content, userId);
+      console.log(`Document ${projectId} saved to MongoDB`);
+    } catch (error) {
+      console.error(`Failed to save document ${projectId}:`, error.message);
+    }
   }, SAVE_DELAY);
 
-  pendingSaves.set(projectId, timer);
+  pendingSaves.set(projectId, { timer, content, userId });
 };
 
-const initializeSocket = (server) => {
+const authenticateSocket = async (socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token;
+
+    if (!token) {
+      return next(new Error("Authentication required"));
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.id).select("-password");
+
+    if (!user) return next(new Error("User not found"));
+
+    socket.user = user;
+    return next();
+  } catch (error) {
+    console.error("Socket authentication failed:", error.message);
+    return next(new Error("Invalid or expired token"));
+  }
+};
+
+const initializeSocket = (server, allowedOrigins) => {
   const io = new Server(server, {
     cors: {
-      origin: process.env.CLIENT_URL || "http://localhost:5173",
+      origin: allowedOrigins,
       methods: ["GET", "POST"],
-      credentials: true,
+      credentials: false,
     },
     transports: ["websocket", "polling"],
   });
 
+  io.use(authenticateSocket);
+
   io.on("connection", (socket) => {
-    console.log(`Socket connected: ${socket.id}`);
+    console.log(`Socket connected: ${socket.id} (${socket.user.email})`);
 
-    // ==========================================
-    // JOIN PROJECT
-    // ==========================================
-
-    socket.on("join:project", async ({ projectId }) => {
+    socket.on("join:project", async ({ projectId } = {}) => {
       try {
         if (!projectId) return;
 
-        const project = await Project.findById(projectId)
-          .select("content title members owner");
+        const project = await Project.findById(projectId).select(
+          "content title owner members updatedAt"
+        );
 
         if (!project) {
-          socket.emit("project:error", {
-            message: "Project not found",
-          });
+          return socket.emit("project:error", { message: "Project not found" });
+        }
 
-          return;
+        if (!canAccessProject(project, socket.user._id)) {
+          return socket.emit("project:error", { message: "Access denied" });
         }
 
         const room = PROJECT_ROOM(projectId);
-
         socket.join(room);
-
-        // Store projectId on socket
         socket.projectId = projectId;
 
-        console.log(
-          `Socket ${socket.id} joined ${room}`
-        );
-
-        // Send current document to the user
         socket.emit("doc:init", {
           content: project.content || "",
           meta: {
             _id: project._id,
             title: project.title,
             owner: project.owner,
+            members: project.members,
             lastModified: project.updatedAt,
           },
         });
 
-      } catch (error) {
-        console.error(
-          "join:project error:",
-          error.message
-        );
-
-        socket.emit("project:error", {
-          message: "Unable to join project",
+        const roomSockets = await io.in(room).fetchSockets();
+        io.to(room).emit("presence:update", {
+          collaborators: roomSockets.map((client) => ({
+            id: client.user._id.toString(),
+            name: client.user.name,
+            email: client.user.email,
+            status: "online",
+            role: client.user._id.toString() === project.owner.toString() ? "Owner" : "Editor",
+            isTyping: false,
+            color: "#2563EB",
+          })),
         });
+      } catch (error) {
+        console.error("join:project error:", error.message);
+        socket.emit("project:error", { message: "Unable to join project" });
       }
     });
 
-    // ==========================================
-    // DOCUMENT UPDATE
-    // ==========================================
+    socket.on("doc:update", ({ projectId, content, clientId } = {}) => {
+      if (!projectId || typeof content !== "string") return;
+      if (socket.projectId !== projectId) return;
 
-    socket.on("doc:update", ({ projectId, content }) => {
-      try {
-        if (!projectId) return;
+      scheduleContentSave(projectId, content, socket.user._id);
 
-        if (typeof content !== "string") {
-          return;
-        }
-
-        const room = PROJECT_ROOM(projectId);
-
-        // Save to MongoDB after debounce
-        scheduleContentSave(projectId, content);
-
-        // Immediately update other connected users
-        socket.to(room).emit("doc:remoteUpdate", {
-          content,
-        });
-
-      } catch (error) {
-        console.error(
-          "doc:update error:",
-          error.message
-        );
-      }
+      socket.to(PROJECT_ROOM(projectId)).emit("doc:remoteUpdate", {
+        content,
+        clientId,
+        userId: socket.user._id.toString(),
+      });
     });
 
-    // ==========================================
-    // ADD COMMENT
-    // ==========================================
+    socket.on("presence:update", ({ projectId, isTyping, cursorPosition } = {}) => {
+      if (!projectId || socket.projectId !== projectId) return;
+      socket.to(PROJECT_ROOM(projectId)).emit("presence:user", {
+        user: {
+          id: socket.user._id.toString(),
+          name: socket.user.name,
+          email: socket.user.email,
+          status: "online",
+          isTyping: Boolean(isTyping),
+          cursorPosition: cursorPosition || null,
+          color: "#2563EB",
+        },
+      });
+    });
 
-    socket.on(
-      "comment:add",
-      ({ projectId, comment }) => {
-        if (!projectId || !comment) return;
+    socket.on("chat:message", ({ projectId, message } = {}) => {
+      if (!projectId || !message || socket.projectId !== projectId) return;
+      socket.to(PROJECT_ROOM(projectId)).emit("chat:message", message);
+    });
 
-        const room = PROJECT_ROOM(projectId);
+    socket.on("comment:add", ({ projectId, comment } = {}) => {
+      if (!projectId || !comment || socket.projectId !== projectId) return;
+      socket.to(PROJECT_ROOM(projectId)).emit("comment:added", comment);
+    });
 
-        socket.to(room).emit("comment:added", comment);
-      }
-    );
+    socket.on("comment:resolve", ({ projectId, commentId } = {}) => {
+      if (!projectId || !commentId || socket.projectId !== projectId) return;
+      socket.to(PROJECT_ROOM(projectId)).emit("comment:resolved", { commentId });
+    });
 
-    // ==========================================
-    // RESOLVE COMMENT
-    // ==========================================
-
-    socket.on(
-      "comment:resolve",
-      ({ projectId, commentId }) => {
-        if (!projectId || !commentId) return;
-
-        const room = PROJECT_ROOM(projectId);
-
-        socket.to(room).emit("comment:resolved", {
-          commentId,
-        });
-      }
-    );
-
-    // ==========================================
-    // LEAVE PROJECT
-    // ==========================================
-
-    socket.on("leave:project", ({ projectId }) => {
+    socket.on("leave:project", ({ projectId } = {}) => {
       if (!projectId) return;
-
-      const room = PROJECT_ROOM(projectId);
-
-      socket.leave(room);
-
-      console.log(
-        `Socket ${socket.id} left ${room}`
-      );
+      socket.leave(PROJECT_ROOM(projectId));
+      socket.projectId = null;
     });
 
-    // ==========================================
-    // DISCONNECT
-    // ==========================================
-
-    socket.on("disconnect", (reason) => {
-      console.log(
-        `Socket disconnected: ${socket.id}`,
-        reason
-      );
+    socket.on("disconnect", async () => {
+      if (!socket.projectId) return;
+      const room = PROJECT_ROOM(socket.projectId);
+      const roomSockets = await io.in(room).fetchSockets();
+      io.to(room).emit("presence:update", {
+        collaborators: roomSockets.map((client) => ({
+          id: client.user._id.toString(),
+          name: client.user.name,
+          email: client.user.email,
+          status: "online",
+          isTyping: false,
+          color: "#2563EB",
+        })),
+      });
+      console.log(`Socket disconnected: ${socket.id}`);
     });
   });
 

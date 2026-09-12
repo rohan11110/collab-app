@@ -21,12 +21,6 @@ const LoginForm = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  // Mock credentials for authentication
-  const mockCredentials = {
-    email: 'admin@collabdocs.com',
-    password: 'admin123'
-  };
-
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e?.target;
     setFormData(prev => ({

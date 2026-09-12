@@ -75,7 +75,7 @@ const RegistrationForm = ({ onSubmit, isLoading = false }) => {
     const newErrors = {};
 
     if (!formData?.name?.trim()) {
-      newErrors.fullName = 'Full name is required';
+      newErrors.name = 'Full name is required';
     } else if (formData?.name?.trim()?.length < 2) {
       newErrors.name = 'Full name must be at least 2 characters';
     }
@@ -122,7 +122,7 @@ const RegistrationForm = ({ onSubmit, isLoading = false }) => {
         label="Full Name"
         type="text"
         placeholder="Enter your full name"
-        value={formData?.fullName}
+        value={formData?.name}
         onChange={(e) => handleInputChange('name', e?.target?.value)}
         error={errors?.fullName}
         required

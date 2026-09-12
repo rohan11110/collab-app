@@ -3,10 +3,9 @@ import { Navigate } from "react-router-dom";
 import { useSelector } from "react-redux";
 
 const ProtectedRoute = ({ children }) => {
-  const { user } = useSelector((state) => state.auth);
+  const user = useSelector((state) => state.auth.user);
 
-  // If no user in redux → redirect to login
-  if (!user || !user.token) {
+  if (!user?.token) {
     return <Navigate to="/login-screen" replace />;
   }
 

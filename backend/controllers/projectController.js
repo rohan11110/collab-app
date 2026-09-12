@@ -1,9 +1,13 @@
 const asyncHandler = require("express-async-handler");
 const Project = require("../models/projectModel");
 
-// @desc Create new project
+const isMember = (project, userId) =>
+  project.members.some((memberId) => memberId.toString() === userId.toString());
+
 const createProject = asyncHandler(async (req, res) => {
-  const { title, content } = req.body;
+  const title = typeof req.body.title === "string" ? req.body.title.trim() : "";
+  const content = typeof req.body.content === "string" ? req.body.content : "";
+
   if (!title) {
     return res.status(400).json({ message: "Title is required" });
   }
@@ -15,64 +19,80 @@ const createProject = asyncHandler(async (req, res) => {
     members: [req.user._id],
   });
 
-  res.status(201).json(project);
+  return res.status(201).json(project);
 });
 
-// @desc Get all projects for logged-in user
 const getProjects = asyncHandler(async (req, res) => {
-  const projects = await Project.find({
-    members: req.user._id,
-  }).populate("owner", "name email");
+  const projects = await Project.find({ members: req.user._id })
+    .populate("owner", "name email")
+    .populate("members", "name email")
+    .sort({ updatedAt: -1 });
 
-  if (!projects || projects.length === 0) {
-    return res.status(200).json({ projects: [] });
-  }
-
-  res.json(projects);
+  return res.json({ projects });
 });
 
-// @desc Get single project
 const getProjectById = asyncHandler(async (req, res) => {
-  const project = await Project.findById(req.params.id).populate("owner", "name email");
-  if (!project.members.includes(req.user._id)) {
-  return res.status(403).json({ message: "Access denied" });
-}
+  const project = await Project.findById(req.params.id)
+    .populate("owner", "name email")
+    .populate("members", "name email");
 
   if (!project) {
     return res.status(404).json({ message: "Project not found" });
   }
-  res.json(project);
+
+  if (!isMember(project, req.user._id)) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  return res.json(project);
 });
 
-// @desc Update project
 const updateProject = asyncHandler(async (req, res) => {
   const project = await Project.findById(req.params.id);
+
   if (!project) {
     return res.status(404).json({ message: "Project not found" });
   }
-  if (project.owner.toString() !== req.user._id.toString()) {
-    return res.status(401).json({ message: "Not authorized" });
+
+  if (!isMember(project, req.user._id)) {
+    return res.status(403).json({ message: "Access denied" });
   }
 
-  project.title = req.body.title || project.title;
-  project.content = req.body.content || project.content;
-  const updatedProject = await project.save();
+  if (project.owner.toString() !== req.user._id.toString()) {
+    return res.status(403).json({ message: "Only the owner can update project metadata" });
+  }
 
-  res.json(updatedProject);
+  if (req.body.title !== undefined) {
+    const title = String(req.body.title).trim();
+    if (!title) {
+      return res.status(400).json({ message: "Title cannot be empty" });
+    }
+    project.title = title;
+  }
+
+  if (req.body.content !== undefined) {
+    if (typeof req.body.content !== "string") {
+      return res.status(400).json({ message: "Content must be a string" });
+    }
+    project.content = req.body.content;
+  }
+
+  return res.json(await project.save());
 });
 
-// @desc Delete project
 const deleteProject = asyncHandler(async (req, res) => {
   const project = await Project.findById(req.params.id);
+
   if (!project) {
     return res.status(404).json({ message: "Project not found" });
   }
+
   if (project.owner.toString() !== req.user._id.toString()) {
-    return res.status(401).json({ message: "Not authorized" });
+    return res.status(403).json({ message: "Not authorized" });
   }
 
   await project.deleteOne();
-  res.json({ message: "Project deleted" });
+  return res.json({ message: "Project deleted" });
 });
 
 module.exports = {

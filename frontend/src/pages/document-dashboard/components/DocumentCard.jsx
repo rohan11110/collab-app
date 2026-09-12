@@ -21,7 +21,7 @@ const DocumentCard = ({
     if (e?.target?.closest('.action-button') || e?.target?.closest('.checkbox-wrapper')) {
       return;
     }
-    navigate('/document-editor', { state: { documentId: document?.id } });
+    navigate(`/document-editor/${document?.id}`);
   };
 
   const getCollaboratorAvatars = () => {

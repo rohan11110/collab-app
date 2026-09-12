@@ -9,7 +9,7 @@ import DocumentDashboard from './pages/document-dashboard';
 import DocumentSharingSettings from './pages/document-sharing-settings';
 import RegisterScreen from './pages/register-screen';
 import DocumentEditor from './pages/document-editor';
-import ProtectedRoute from "./components/ProtectedRoute"; // ✅
+import ProtectedRoute from "./components/ProtectedRoute"; 
 
 const Routes = () => {
   return (
@@ -55,7 +55,7 @@ const Routes = () => {
             }
           />
           <Route
-            path="/document-editor"
+            path="/document-editor/:projectId"
             element={
               <ProtectedRoute>
                 <DocumentEditor />
